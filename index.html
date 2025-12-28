@@ -1,28 +1,264 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Lens: 문화감수성 테스트</title>
+    <title>Global Lens: 청소년 문화감수성 테스트</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Pretendard', sans-serif; }
+        .animate-in { animation: fadeIn 0.7s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .prose p { margin-bottom: 1rem; }
     </style>
 <script type="importmap">
 {
   "imports": {
+    "vite": "https://esm.sh/vite@^7.3.0",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
     "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
-    "react": "https://esm.sh/react@^19.2.3",
+    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
     "react/": "https://esm.sh/react@^19.2.3/",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0"
+    "react": "https://esm.sh/react@^19.2.3"
   }
 }
 </script>
 </head>
 <body class="bg-slate-50 text-slate-900">
     <div id="root"></div>
+
+    <script type="module">
+        import React, { useState, useMemo, useEffect } from 'https://esm.sh/react@19';
+        import ReactDOM from 'https://esm.sh/react-dom@19/client';
+        import htm from 'https://esm.sh/htm';
+        import { 
+            Globe, ChevronRight, ChevronLeft, RotateCcw, 
+            ShieldCheck, Heart, BookOpen, HandMetal, 
+            Sparkles, Copy, Check 
+        } from 'https://esm.sh/lucide-react@latest?external=react';
+        import { GoogleGenAI } from 'https://esm.sh/@google/genai';
+
+        const html = htm.bind(React.createElement);
+
+        // --- 질문 데이터 (30문항) ---
+        const Category = {
+            OPENNESS: '개방성',
+            EMPATHY: '공감능력',
+            KNOWLEDGE: '문화지식',
+            NON_BIAS: '반편견',
+            SOCIAL_ACTION: '실천의지'
+        };
+
+        const QUESTIONS = [
+            { id: 1, text: "나는 내가 잘 모르는 나라의 전통 음식을 먹어보는 것이 즐겁다.", category: Category.OPENNESS },
+            { id: 2, text: "학교에 외국인 전학생이 온다면 가장 먼저 말을 걸어보고 싶다.", category: Category.OPENNESS },
+            { id: 3, text: "다른 나라의 언어를 배우는 것은 시간 낭비라고 생각한다.", category: Category.OPENNESS, reverse: true },
+            { id: 4, text: "우리나라와 다른 풍습을 가진 사람들을 보면 호기심이 생긴다.", category: Category.OPENNESS },
+            { id: 5, text: "나는 여행을 갈 때 관광지보다 현지인들의 삶을 엿볼 수 있는 곳이 더 좋다.", category: Category.OPENNESS },
+            { id: 6, text: "나와 가치관이 아주 다른 사람과도 친구가 될 수 있다.", category: Category.OPENNESS },
+            { id: 7, text: "외국인 노동자가 차별받는 뉴스를 보면 내 일처럼 마음이 아프다.", category: Category.EMPATHY },
+            { id: 8, text: "말이 잘 통하지 않는 외국인 친구의 표정만 보고도 기분을 짐작할 수 있다.", category: Category.EMPATHY },
+            { id: 9, text: "상대방의 입장에서 생각해보는 것은 피곤한 일이다.", category: Category.EMPATHY, reverse: true },
+            { id: 10, text: "소수 민족이 겪는 어려움에 대해 관심을 가지고 들어줄 준비가 되어 있다.", category: Category.EMPATHY },
+            { id: 11, text: "영화나 책을 볼 때 주인공이 외국인이라도 감정 이입이 잘 된다.", category: Category.EMPATHY },
+            { id: 12, text: "누군가 서툰 한국말을 할 때, 비웃기보다 그가 하려는 말의 의미를 찾으려 노력한다.", category: Category.EMPATHY },
+            { id: 13, text: "나는 세계 여러 나라의 역사와 지리에 대해 어느 정도 알고 있다.", category: Category.KNOWLEDGE },
+            { id: 14, text: "종교에 따라 금기시되는 음식이나 행동이 있다는 사실을 잘 알고 있다.", category: Category.KNOWLEDGE },
+            { id: 15, text: "다양한 문화권의 인사법이나 예절을 배워본 적이 있다.", category: Category.KNOWLEDGE },
+            { id: 16, text: "나는 '다문화'라는 단어가 단순히 외국인을 뜻하는 것이 아님을 안다.", category: Category.KNOWLEDGE },
+            { id: 17, text: "글로벌 이슈(기후변화, 전쟁 등)가 다른 나라 사람들에게 미치는 영향을 이해한다.", category: Category.KNOWLEDGE },
+            { id: 18, text: "인종이나 국적에 따라 성격이 정해져 있다는 생각은 틀렸다고 본다.", category: Category.KNOWLEDGE },
+            { id: 19, text: "특정 국가 사람들은 게으르거나 거칠다는 말을 들으면 곧이곧대로 믿지 않는다.", category: Category.NON_BIAS },
+            { id: 20, text: "나는 피부색이 진한 사람을 볼 때 무의식적으로 피하지 않는다.", category: Category.NON_BIAS },
+            { id: 21, text: "우리나라 문화가 세계에서 가장 우월하다고 생각하지 않는다.", category: Category.NON_BIAS },
+            { id: 22, text: "동남아시아 국가보다 서구 선진국 사람들에게 더 친절하게 대하는 경향이 있다.", category: Category.NON_BIAS, reverse: true },
+            { id: 23, text: "TV에서 가난한 나라를 보여줄 때 '불쌍하다'는 생각보다 '그들의 삶'으로 존중하려 한다.", category: Category.NON_BIAS },
+            { id: 24, text: "친구들이 특정 인종에 대해 농담을 할 때 같이 웃지 않으려 노력한다.", category: Category.NON_BIAS },
+            { id: 25, text: "주변에서 문화적 차별이 일어나면 용기 있게 나서서 멈추라고 말할 수 있다.", category: Category.SOCIAL_ACTION },
+            { id: 26, text: "다양한 문화를 체험할 수 있는 캠프나 봉사활동에 참여할 의향이 있다.", category: Category.SOCIAL_ACTION },
+            { id: 27, text: "학교 급식에 다른 나라 음식이 나왔을 때 투덜대지 않고 맛있게 먹어본다.", category: Category.SOCIAL_ACTION },
+            { id: 28, text: "외국인 친구가 한국 생활에서 어려움을 겪고 있다면 먼저 도와주고 싶다.", category: Category.SOCIAL_ACTION },
+            { id: 29, text: "나는 인터넷에서 인종차별적인 댓글을 보면 신고하거나 반대 의견을 남긴다.", category: Category.SOCIAL_ACTION },
+            { id: 30, text: "미래에 다양한 문화가 섞인 사회에서 살아가는 것이 기대된다.", category: Category.SOCIAL_ACTION }
+        ];
+
+        // --- AI 피드백 서비스 ---
+        async function getAIFeedback(score, breakdown) {
+            const staticFeedback = (s) => {
+                if (s >= 130) return "당신은 이미 훌륭한 세계 시민입니다! 다양한 문화에 대한 열린 마음을 계속 유지해주세요.";
+                if (s >= 100) return "문화 감수성이 매우 높은 편입니다. 조금 더 구체적인 문화 지식을 쌓는다면 더욱 완벽해질 거예요.";
+                if (s >= 70) return "충분히 잘하고 있습니다! 우리와 다른 문화에 대해 조금 더 호기심을 가져보세요.";
+                return "새로운 문화를 접하는 것이 아직은 낯설 수 있습니다. 다름을 인정하는 연습부터 시작해봐요.";
+            };
+
+            const apiKey = typeof process !== 'undefined' ? process.env.API_KEY : null;
+            if (!apiKey || apiKey === 'your_google_gemini_api_key_here') return staticFeedback(score);
+
+            try {
+                const ai = new GoogleGenAI({ apiKey });
+                const response = await ai.models.generateContent({
+                    model: "gemini-3-flash-preview",
+                    contents: `청소년 문화감수성 테스트 결과 분석: 총점 ${score}/150, 개방성:${breakdown['개방성']}, 공감:${breakdown['공감능력']}, 지식:${breakdown['문화지식']}, 반편견:${breakdown['반편견']}, 실천:${breakdown['실천의지']}. 중고등학생에게 친절하게 강점과 팁을 한국어로 3문장 정도 작성해줘.`
+                });
+                return response.text || staticFeedback(score);
+            } catch (e) {
+                return staticFeedback(score);
+            }
+        }
+
+        // --- UI 컴포넌트 ---
+        const Progress = ({ current, total }) => html`
+            <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden mb-8">
+                <div className="bg-indigo-600 h-full transition-all duration-500 ease-out" style=${{ width: `${(current / total) * 100}%` }} />
+            </div>
+        `;
+
+        const Landing = ({ onStart }) => html`
+            <div className="flex flex-col items-center justify-center text-center space-y-8 p-6 max-w-2xl mx-auto min-h-[80vh] animate-in">
+                <div className="bg-indigo-100 p-5 rounded-3xl">
+                    <${Globe} className="w-16 h-16 text-indigo-600" />
+                </div>
+                <div className="space-y-4">
+                    <h1 className="text-4xl md:text-5xl font-bold text-slate-900 leading-tight">나의 세상은<br/><span className="text-indigo-600">얼마나 넓을까요?</span></h1>
+                    <p className="text-lg text-slate-600 font-medium">청소년 문화감수성 및 편견 진단 테스트</p>
+                </div>
+                <button onClick=${onStart} className="w-full max-w-sm py-4 bg-indigo-600 text-white rounded-2xl font-bold text-xl shadow-lg flex items-center justify-center gap-2">
+                    시작하기 <${ChevronRight} className="w-6 h-6" />
+                </button>
+            </div>
+        `;
+
+        const ResultView = ({ result, onReset }) => {
+            const [aiTip, setAiTip] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [copied, setCopied] = useState(false);
+
+            useEffect(() => {
+                setLoading(true);
+                getAIFeedback(result.totalScore, result.breakdown).then(tip => {
+                    setAiTip(tip);
+                    setLoading(false);
+                });
+            }, []);
+
+            const categoryIcons = {
+                '개방성': html`<${Globe} />`,
+                '공감능력': html`<${Heart} />`,
+                '문화지식': html`<${BookOpen} />`,
+                '반편견': html`<${ShieldCheck} />`,
+                '실천의지': html`<${HandMetal} />`
+            };
+
+            return html`
+                <div className="max-w-3xl mx-auto p-6 space-y-8 animate-in pb-20">
+                    <div className="text-center space-y-3">
+                        <div className="inline-block px-4 py-1 bg-indigo-50 text-indigo-600 rounded-full text-sm font-bold">${result.level}</div>
+                        <h1 className="text-3xl font-bold text-slate-900">${result.description}</h1>
+                        <div className="flex justify-center items-baseline gap-1 py-4">
+                            <span className="text-6xl font-black text-indigo-600">${result.totalScore}</span>
+                            <span className="text-xl text-slate-400 font-bold">/ 150</span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        ${Object.entries(result.breakdown).map(([cat, score]) => html`
+                            <div key=${cat} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                        <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">${categoryIcons[cat]}</div>
+                                        <span className="font-bold text-slate-700">${cat}</span>
+                                    </div>
+                                    <span className="text-lg font-bold text-indigo-600">${score}</span>
+                                </div>
+                                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+                                    <div className="bg-indigo-400 h-full" style=${{ width: `${(score / 30) * 100}%` }} />
+                                </div>
+                            </div>
+                        `)}
+                    </div>
+
+                    <div className="bg-slate-900 text-white p-8 rounded-3xl shadow-xl">
+                        <h3 className="text-xl font-bold mb-4 flex items-center gap-2"><${Sparkles} className="text-amber-400" /> AI 분석 리포트</h3>
+                        ${loading ? html`<p className="text-slate-400">AI가 분석 중입니다...</p>` : html`<p className="text-slate-200 leading-relaxed">${aiTip}</p>`}
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row gap-4">
+                        <button onClick=${onReset} className="flex-1 py-4 bg-white border border-slate-200 rounded-2xl font-bold flex items-center justify-center gap-2">
+                            <${RotateCcw} className="w-5 h-5" /> 다시하기
+                        </button>
+                        <button onClick=${() => {
+                            navigator.clipboard.writeText(`문화감수성 테스트 결과: ${result.totalScore}점!`).then(() => setCopied(true));
+                        }} className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold flex items-center justify-center gap-2">
+                            ${copied ? html`<${Check} /> 복사됨` : html`<${Copy} /> 결과 공유`}
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        const App = () => {
+            const [step, setStep] = useState('landing');
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [answers, setAnswers] = useState(new Array(QUESTIONS.length).fill(0));
+
+            const result = useMemo(() => {
+                const breakdown = { '개방성': 0, '공감능력': 0, '문화지식': 0, '반편견': 0, '실천의지': 0 };
+                let total = 0;
+                QUESTIONS.forEach((q, i) => {
+                    let s = answers[i] || 3;
+                    if (q.reverse) s = 6 - s;
+                    breakdown[q.category] += s;
+                    total += s;
+                });
+                let level = "Level 3", desc = "성장하는 시민";
+                if (total >= 130) { level = "Level 5", desc = "글로벌 마스터"; }
+                else if (total >= 100) { level = "Level 4", desc = "문화 탐험가"; }
+                return { totalScore: total, breakdown, level, description: desc };
+            }, [answers]);
+
+            if (step === 'landing') return html`<${Landing} onStart=${() => setStep('quiz')} />`;
+            if (step === 'result') return html`<${ResultView} result=${result} onReset=${() => { setStep('landing'); setCurrentIndex(0); setAnswers(new Array(QUESTIONS.length).fill(0)); }} />`;
+
+            return html`
+                <div className="w-full max-w-2xl mx-auto p-4 py-8 animate-in">
+                    <div className="flex justify-between items-end mb-4">
+                        <div>
+                            <span className="text-xs font-bold text-indigo-500 uppercase">${QUESTIONS[currentIndex].category}</span>
+                            <h3 className="text-lg font-bold">${QUESTIONS[currentIndex].category}</h3>
+                        </div>
+                        <span className="text-sm font-bold text-slate-400">${currentIndex + 1} / ${QUESTIONS.length}</span>
+                    </div>
+                    <${Progress} current=${currentIndex + 1} total=${QUESTIONS.length} />
+                    <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-xl border border-slate-100 min-h-[400px] flex flex-col justify-center items-center text-center space-y-10">
+                        <h2 className="text-2xl font-bold leading-relaxed">${QUESTIONS[currentIndex].text}</h2>
+                        <div className="grid grid-cols-1 gap-3 w-full max-w-sm">
+                            ${[
+                                { t: '매우 그렇다', s: 5, c: 'bg-indigo-600 text-white' },
+                                { t: '그렇다', s: 4, c: 'bg-indigo-50 text-indigo-700' },
+                                { t: '보통이다', s: 3, c: 'bg-slate-50 text-slate-600' },
+                                { t: '아니다', s: 2, c: 'bg-rose-50 text-rose-700' },
+                                { t: '매우 아니다', s: 1, c: 'bg-rose-600 text-white' }
+                            ].map(btn => html`
+                                <button key=${btn.s} onClick=${() => {
+                                    const nextAnswers = [...answers];
+                                    nextAnswers[currentIndex] = btn.s;
+                                    setAnswers(nextAnswers);
+                                    if (currentIndex < QUESTIONS.length - 1) setCurrentIndex(currentIndex + 1);
+                                    else setStep('result');
+                                }} className=${`py-4 rounded-2xl font-bold transition-all active:scale-95 ${btn.c}`}>${btn.t}</button>
+                            `)}
+                        </div>
+                    </div>
+                    <button disabled=${currentIndex === 0} onClick=${() => setCurrentIndex(currentIndex - 1)} className="mt-6 flex items-center gap-1 text-slate-400 hover:text-indigo-600 disabled:opacity-0">
+                        <${ChevronLeft} /> 이전 질문
+                    </button>
+                </div>
+            `;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(html`<${App} />`);
+    </script>
 </body>
 </html>
